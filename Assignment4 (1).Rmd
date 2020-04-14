@@ -6,6 +6,14 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+.libPaths( c("C:/Users/biank/Documents/Skole/CogSci/R_packages", .libPaths() ) )
+.libPaths()
+
+library(pacman)
+library(brms)
+library(tidyverse)
+p_load(metafor)
 ```
 
 ## Assignment 4
@@ -23,6 +31,74 @@ Step 1: Perform a meta-analysis of pitch variability from previous studies of vo
 - the data is available as Ass4_MetaAnalysisData.tsv
 - You should calculate Effect size (cohen's d) and Standard Error (uncertainty in the Cohen's d) per each study, using escalc() from the metafor package (also check the livecoding intro)
 - N.B. we're only interested in getting a meta-analytic effect size for the meta-analytic prior (and not e.g. all the stuff on publication bias). See a brms tutorial here: https://vuorre.netlify.com/post/2016/09/29/meta-analysis-is-a-special-case-of-bayesian-multilevel-modeling/ The formula is EffectSize | se(StandardError) ~ 1 + (1 | Paper). Don't forget prior definition, model checking, etc.
+
+```{r}
+set.seed(3)
+m <- read_tsv("Ass4_MetaAnalysisData.tsv")
+
+m<-m %>% subset(!is.na(Paper))
+
+
+PitchMeanES <- escalc('SMD',
+  n1i = ASD_N, n2i = TD_N, 
+  m1i = PitchVariabilityASD_Mean, m2i = PitchVariabilityTD_Mean,
+  sd1i = PitchVariabilityASD_SD, sd2i = PitchVariabilityTD_SD,
+  data = m)
+
+
+#PitchMeanES$sei<-sqrt(PitchMeanES$vi)/sqrt(PitchMeanES$ASD_N+PitchMeanES$TD_N)
+
+# We calculate the stanard error
+PitchMeanES <- PitchMeanES %>% mutate(
+  sei = sqrt(PitchMeanES$vi)
+  )
+
+ggplot(PitchMeanES, aes(x=yi, y=Paper)) +
+  geom_segment(aes(x = yi-sei*2, xend = yi+sei*2, y=Paper, yend=Paper)) +
+  geom_point()
+
+mean(sqrt(na.omit(PitchMeanES$vi)))
+
+prior_yi<-
+  c(
+  prior(normal(0, 1), class = "Intercept"),
+  prior(normal(0, .3), class = "sd")
+)
+  
+brm_prior <- brm(
+  yi | se(sei) ~ 1 + (1 | Population),
+  prior = prior_yi,
+  family=gaussian(),
+  data = PitchMeanES,
+  sample_prior = "only",
+  cores = 2,
+  chains=2)
+
+
+pp_check(brm_prior, nsamples=1000)
+
+brm_model <- brm(
+  yi | se(sei) ~ 1 + (1 | Population),
+  prior = prior_yi,
+  family=gaussian(),
+  data = PitchMeanES,
+  sample_prior = T,
+  cores = 2,
+  chains=2)
+
+pp_check(brm_model,nsamples=100)
+summary(brm_model)
+
+plot(brm_out)
+
+m_mean <- fixef(brm_model)[[1]]
+ma_se <- fixef(brm_model)[[2]]
+
+ranef(brm_model)$Population
+
+ma_heterogenity<-sd(ranef(brm_model)$Population[,, "Intercept"][,1])
+```
+
 - Write down the results of the meta-analysis in terms of a prior for step 2.
 
 Step 2: Analyse pitch variability in ASD in two new studies for which you have access to all the trials (not just study level estimates)
@@ -30,9 +106,17 @@ Step 2: Analyse pitch variability in ASD in two new studies for which you have a
 - Also, let's standardize the data, so that they are compatible with our meta-analytic prior (Cohen's d is measured in SDs).
 - Is there any structure in the dataset that we should account for with random/varying effects? How would you implement that? Or, if you don't know how to do bayesian random/varying effects or don't want to bother, is there anything we would need to simplify in the dataset?
 
+
+```{r}
+
+```
+
+
 Step 3: Build a regression model predicting Pitch variability from Diagnosis.
 - how is the outcome distributed? (likelihood function). NB. given we are standardizing, and the meta-analysis is on that scale, gaussian is not a bad assumption. Lognormal would require us to convert the prior to that scale.
-- how are the parameters of the likelihood distribution distributed? Which predictors should they be conditioned on? Start simple, with Diagnosis only. Add other predictors only if you have the time and energy!
+
+- discuss: how are the parameters of the likelihood distribution distributed? Which predictors should they be conditioned on? Start simple, with Diagnosis only. Add other predictors only if you have the time and energy!
+
 - use a skeptical/conservative prior for the effects of diagnosis. Remember you'll need to motivate it.
 - Evaluate model quality. Describe and plot the estimates. 
 
